@@ -1,0 +1,102 @@
+[package]
+name = "scf"
+version = "0.1.0"
+edition = "2021"
+authors = ["SCF Research Team"]
+description = "Steganographic Communication Framework - Privacy-preserving transport layer"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/scf-research/scf"
+keywords = ["privacy", "cryptography", "networking", "tls", "obfuscation"]
+categories = ["cryptography", "network-programming"]
+
+[lib]
+name = "scf"
+crate-type = ["lib", "cdylib", "staticlib"]
+
+[[bin]]
+name = "scf-server"
+path = "src/bin/server.rs"
+
+[[bin]]
+name = "scf-client"
+path = "src/bin/client.rs"
+
+[features]
+default = ["std"]
+std = []
+ffi = ["std"]
+server = ["std", "tokio/full"]
+client = ["std", "tokio/rt-multi-thread"]
+mobile = []  # Optimizations for ARM/mobile
+
+[dependencies]
+# Cryptographic primitives
+x25519-dalek = { version = "2.0", features = ["static_secrets"] }
+chacha20poly1305 = "0.10"
+sha2 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+rand = "0.8"
+rand_core = "0.6"
+zeroize = { version = "1.7", features = ["derive"] }
+
+# TLS/Networking
+rustls = { version = "0.23", default-features = false, features = ["ring", "logging", "tls12"] }
+tokio = { version = "1.35", features = ["net", "io-util", "time", "sync", "macros"] }
+tokio-rustls = "0.26"
+webpki-roots = "0.26"
+quinn = { version = "0.11", optional = true }
+
+# Serialization
+bytes = "1.5"
+byteorder = "1.5"
+
+# Error handling
+thiserror = "1.0"
+anyhow = "1.0"
+
+# Logging/Metrics
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Async utilities
+futures = "0.3"
+async-trait = "1.0"
+parking_lot = "0.12"
+
+# Configuration
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+toml = "0.8"
+hex = "0.4"
+base64 = "0.22"
+chrono = "0.4"
+
+# For statistical analysis (optional, dev only)
+statrs = { version = "0.17", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio"] }
+proptest = "1.4"
+tokio-test = "0.4"
+statrs = "0.17"
+rand_distr = "0.4"
+
+[[bench]]
+name = "crypto_bench"
+harness = false
+
+[[bench]]
+name = "transport_bench"
+harness = false
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+opt-level = 3
+
+[profile.release-mobile]
+inherits = "release"
+opt-level = "s"  # Optimize for size on mobile
