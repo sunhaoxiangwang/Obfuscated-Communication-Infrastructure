@@ -6,7 +6,7 @@
 
 use bytes::{BufMut, BytesMut};
 
-use crate::crypto::{kdf, EphemeralSecret, PublicKey, SecureRandom};
+use crate::crypto::{kdf, PublicKey, SecureRandom, StaticSecret};
 use crate::error::{Error, Result};
 use crate::reality::{AUTH_TAG_OFFSET, SHORT_ID_SIZE};
 
@@ -47,10 +47,8 @@ pub enum ExtensionType {
 pub struct ClientHelloBuilder {
     /// Server name indication (SNI)
     sni: String,
-    /// Client's ephemeral public key
+    /// Client's public key (goes in KeyShare extension)
     client_public: PublicKey,
-    /// Pre-computed shared secret for auth tag
-    shared_secret: [u8; 32],
     /// Short ID to embed in authentication
     short_id: [u8; 8],
     /// ALPN protocols to advertise
@@ -68,32 +66,23 @@ impl ClientHelloBuilder {
     /// * `alpn` - ALPN protocols (e.g., ["h2", "http/1.1"])
     pub fn new(
         sni: impl Into<String>,
-        server_public_key: &PublicKey,
+        _server_public_key: &PublicKey,
         short_id: [u8; 8],
         alpn: Vec<String>,
-    ) -> (Self, EphemeralSecret) {
-        let client_ephemeral = EphemeralSecret::random();
-        let client_public = PublicKey::from(&client_ephemeral);
-
-        // Compute shared secret for authentication
-        // Note: We need to clone the ephemeral for DH, then use it again later
-        let temp_ephemeral = EphemeralSecret::random();
-        let temp_public = PublicKey::from(&temp_ephemeral);
-        let _ = temp_ephemeral.diffie_hellman(server_public_key);
-
-        // For the builder, we'll compute shared secret during build
-        // Store the server public key info needed
-        let shared_secret = [0u8; 32]; // Placeholder, computed during build
+    ) -> (Self, StaticSecret) {
+        // Use StaticSecret so we can call diffie_hellman twice:
+        // once for auth tag, once for session key derivation
+        let client_secret = StaticSecret::random();
+        let client_public = PublicKey::from(&client_secret);
 
         (
             Self {
                 sni: sni.into(),
                 client_public,
-                shared_secret,
                 short_id,
                 alpn,
             },
-            client_ephemeral,
+            client_secret,
         )
     }
 
@@ -414,11 +403,11 @@ mod tests {
         let short_id = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let alpn = vec!["h2".to_string(), "http/1.1".to_string()];
 
-        let (builder, client_ephemeral) =
+        let (builder, client_secret) =
             ClientHelloBuilder::new("www.example.com", &server_public, short_id, alpn);
 
-        // Compute shared secret
-        let shared = client_ephemeral.diffie_hellman(&server_public);
+        // Compute shared secret (StaticSecret allows calling DH twice)
+        let shared = client_secret.diffie_hellman(&server_public);
 
         let client_hello = builder.build(shared.as_bytes());
 
@@ -440,11 +429,11 @@ mod tests {
         let short_id = [0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
         let alpn = vec!["h2".to_string()];
 
-        let (builder, client_ephemeral) =
+        let (builder, client_secret) =
             ClientHelloBuilder::new("www.example.com", &server_public, short_id, alpn);
 
-        let client_public = PublicKey::from(&client_ephemeral);
-        let shared = client_ephemeral.diffie_hellman(&server_public);
+        let client_public = PublicKey::from(&client_secret);
+        let shared = client_secret.diffie_hellman(&server_public);
 
         let _client_hello = builder.build(shared.as_bytes());
 

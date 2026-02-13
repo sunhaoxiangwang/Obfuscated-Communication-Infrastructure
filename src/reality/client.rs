@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::time::timeout;
 
-use crate::crypto::{Aead, EphemeralSecret, Nonce, PublicKey, SessionKeys};
+use crate::crypto::{Aead, Nonce, PublicKey, SessionKeys};
 use crate::error::{Error, Result};
 use crate::reality::config::RealityConfig;
 use crate::reality::handshake::ClientHelloBuilder;
@@ -59,21 +59,16 @@ impl RealityClient {
         let server_public = self.config.server_public_key();
 
         // Build ClientHello with embedded authentication
-        let (builder, client_ephemeral) = ClientHelloBuilder::new(
+        let (builder, client_secret) = ClientHelloBuilder::new(
             &self.config.cover_sni,
             &server_public,
             self.config.short_id,
             self.config.alpn.clone(),
         );
 
-        // Compute shared secret for authentication
-        // We need the ephemeral secret for both auth and later key derivation
-        let client_public = PublicKey::from(&client_ephemeral);
-
-        // Generate a temporary ephemeral for the auth tag computation
-        // (In practice, we'd restructure to avoid this)
-        let auth_ephemeral = EphemeralSecret::random();
-        let auth_shared = auth_ephemeral.diffie_hellman(&server_public);
+        // Compute auth shared secret (same key that's in the KeyShare extension)
+        // StaticSecret allows calling diffie_hellman twice (auth + session keys)
+        let auth_shared = client_secret.diffie_hellman(&server_public);
 
         let client_hello = builder.build(auth_shared.as_bytes());
 
@@ -101,8 +96,8 @@ impl RealityClient {
             .server_public_key
             .ok_or_else(|| Error::handshake("Server did not provide key share"))?;
 
-        // Compute final shared secret using server's ephemeral key
-        let final_shared = client_ephemeral.diffie_hellman(&server_ephemeral_public);
+        // Compute session shared secret using server's ephemeral key
+        let final_shared = client_secret.diffie_hellman(&server_ephemeral_public);
 
         // Derive session keys
         let session_keys = SessionKeys::derive(&final_shared, b"reality_handshake");

@@ -71,11 +71,11 @@ pub async fn run_socks5_proxy(
     // If the tunnel reader or writer exits, we're done
     tokio::select! {
         _ = accept_loop => {}
-        _ = reader_handle => {
-            tracing::info!("Tunnel closed");
+        r = reader_handle => {
+            tracing::error!("Tunnel reader exited: {:?}", r);
         }
-        _ = writer_handle => {
-            tracing::info!("Tunnel closed");
+        r = writer_handle => {
+            tracing::error!("Tunnel writer exited: {:?}", r);
         }
     }
 
@@ -86,10 +86,12 @@ pub async fn run_socks5_proxy(
 async fn tunnel_writer(mut writer: RealityWriter, mut rx: mpsc::Receiver<Frame>) {
     while let Some(frame) = rx.recv().await {
         let data = frame.encode();
-        if writer.send(&data).await.is_err() {
+        if let Err(e) = writer.send(&data).await {
+            tracing::error!("Tunnel write error: {}", e);
             break;
         }
     }
+    tracing::debug!("Tunnel writer loop ended");
 }
 
 /// Read mux frames from the tunnel and dispatch to per-stream channels.
@@ -107,7 +109,10 @@ async fn tunnel_reader(
                     }
                 }
             }
-            Err(_) => break,
+            Err(e) => {
+                tracing::error!("Tunnel read error: {}", e);
+                break;
+            }
         }
     }
 }
