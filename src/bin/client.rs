@@ -182,6 +182,6 @@ async fn run_client(config_path: &str) -> anyhow::Result<()> {
 fn load_config(path: &str) -> anyhow::Result<RealityConfig> {
     let content = std::fs::read_to_string(path)?;
     let config: RealityConfig = serde_json::from_str(&content)?;
-    config.validate().map_err(|e| anyhow::anyhow!(e))?;
+    config.validate().map_err(|e: String| anyhow::anyhow!(e))?;
     Ok(config)
 }
