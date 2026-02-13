@@ -140,7 +140,7 @@ impl RealityConnection {
         self.send_nonce.increment();
 
         // Frame as TLS application data record
-        let record = self.frame_as_tls_record(&ciphertext);
+        let record = frame_as_tls_record(&ciphertext);
 
         self.stream.write_all(&record).await.map_err(Error::Network)
     }
@@ -178,15 +178,21 @@ impl RealityConnection {
         Ok(())
     }
 
-    fn frame_as_tls_record(&self, data: &[u8]) -> Vec<u8> {
-        let mut record = Vec::with_capacity(5 + data.len());
-        record.push(0x17); // Application data
-        record.push(0x03);
-        record.push(0x03); // TLS 1.2 version
-        record.push((data.len() >> 8) as u8);
-        record.push((data.len() & 0xff) as u8);
-        record.extend_from_slice(data);
-        record
+    /// Split into reader and writer halves for concurrent use.
+    pub fn split(self) -> (RealityReader, RealityWriter) {
+        let (read_half, write_half) = tokio::io::split(self.stream);
+        (
+            RealityReader {
+                reader: read_half,
+                server_aead: self.server_aead,
+                recv_nonce: self.recv_nonce,
+            },
+            RealityWriter {
+                writer: write_half,
+                client_aead: self.client_aead,
+                send_nonce: self.send_nonce,
+            },
+        )
     }
 
     /// Get a reference to the underlying stream for advanced usage.
@@ -198,6 +204,62 @@ impl RealityConnection {
     pub fn stream_mut(&mut self) -> &mut TcpStream {
         &mut self.stream
     }
+}
+
+/// Writing half of a split RealityConnection.
+pub struct RealityWriter {
+    writer: tokio::io::WriteHalf<TcpStream>,
+    client_aead: Aead,
+    send_nonce: Nonce,
+}
+
+impl RealityWriter {
+    /// Send encrypted data.
+    pub async fn send(&mut self, data: &[u8]) -> Result<()> {
+        let ciphertext = self.client_aead.encrypt(&self.send_nonce, data, b"")?;
+        self.send_nonce.increment();
+        let record = frame_as_tls_record(&ciphertext);
+        self.writer.write_all(&record).await.map_err(Error::Network)
+    }
+}
+
+/// Reading half of a split RealityConnection.
+pub struct RealityReader {
+    reader: tokio::io::ReadHalf<TcpStream>,
+    server_aead: Aead,
+    recv_nonce: Nonce,
+}
+
+impl RealityReader {
+    /// Receive and decrypt data.
+    pub async fn recv(&mut self) -> Result<Vec<u8>> {
+        let mut header = [0u8; 5];
+        self.reader.read_exact(&mut header).await?;
+
+        if header[0] != 0x17 {
+            return Err(Error::InvalidMessage("Expected application data record".into()));
+        }
+
+        let length = u16::from_be_bytes([header[3], header[4]]) as usize;
+        let mut ciphertext = vec![0u8; length];
+        self.reader.read_exact(&mut ciphertext).await?;
+
+        let plaintext = self.server_aead.decrypt(&self.recv_nonce, &ciphertext, b"")?;
+        self.recv_nonce.increment();
+        Ok(plaintext)
+    }
+}
+
+/// Frame data as a TLS application data record.
+fn frame_as_tls_record(data: &[u8]) -> Vec<u8> {
+    let mut record = Vec::with_capacity(5 + data.len());
+    record.push(0x17); // Application data
+    record.push(0x03);
+    record.push(0x03); // TLS 1.2 version
+    record.push((data.len() >> 8) as u8);
+    record.push((data.len() & 0xff) as u8);
+    record.extend_from_slice(data);
+    record
 }
 
 #[cfg(test)]

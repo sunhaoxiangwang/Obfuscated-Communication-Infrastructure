@@ -215,13 +215,15 @@ impl Server {
         let server_hello = crate::reality::RealityServer::build_server_hello(&server_public);
         stream.write_all(&server_hello).await?;
 
-        // Derive session keys
+        // Derive session keys (label must match client's "reality_handshake")
         let shared = server_ephemeral.diffie_hellman(session.client_public());
-        let keys = crate::crypto::SessionKeys::derive(&shared, b"reality_session");
+        let keys = crate::crypto::SessionKeys::derive(&shared, b"reality_handshake");
 
-        // Enter encrypted session loop
-        session.set_keys(keys);
-        session.run(&mut stream).await
+        // Create AEAD instances and run relay
+        let client_aead = crate::crypto::Aead::new(&keys.client_key());
+        let server_aead = crate::crypto::Aead::new(&keys.server_key());
+
+        crate::proxy::relay::run_relay(stream, client_aead, server_aead).await
     }
 
     async fn proxy_to_cover(

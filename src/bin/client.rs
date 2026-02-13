@@ -61,7 +61,7 @@ USAGE:
     scf-client [OPTIONS]
 
 OPTIONS:
-    -c, --config <FILE>  Path to configuration file
+    -c, --config <FILE>  Start SOCKS5 proxy using config file
     -t, --test <FILE>    Test connection using config file
     -h, --help           Print help information
 
@@ -78,8 +78,9 @@ EXAMPLES:
     Test connection:
         scf-client --test client.json
 
-    Run interactive client:
+    Start SOCKS5 proxy (routes traffic through VPS):
         scf-client --config client.json
+        Then set your browser SOCKS5 proxy to 127.0.0.1:1080
 "#
     );
 }
@@ -135,47 +136,14 @@ async fn run_client(config_path: &str) -> anyhow::Result<()> {
     tracing::info!("Connecting to {}:{}", config.server_addr, config.server_port);
 
     let client = RealityClient::new(config)?;
-    let mut conn = client.connect().await?;
+    let conn = client.connect().await?;
 
-    tracing::info!("Connected. Type messages to send, Ctrl+C to exit.");
+    tracing::info!("Connected! Starting SOCKS5 proxy on 127.0.0.1:1080");
+    tracing::info!("Set your browser/app SOCKS5 proxy to 127.0.0.1:1080");
 
-    // Simple echo client
-    let mut input = String::new();
-    loop {
-        input.clear();
-        std::io::stdin().read_line(&mut input)?;
+    let (reader, writer) = conn.split();
+    scf::proxy::socks5::run_socks5_proxy("127.0.0.1:1080", reader, writer).await?;
 
-        let msg = input.trim();
-        if msg.is_empty() {
-            continue;
-        }
-
-        conn.send(msg.as_bytes()).await?;
-
-        match tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            conn.recv(),
-        )
-        .await
-        {
-            Ok(Ok(data)) => {
-                if let Ok(text) = String::from_utf8(data) {
-                    println!("< {}", text);
-                } else {
-                    println!("< [binary data]");
-                }
-            }
-            Ok(Err(e)) => {
-                eprintln!("Error: {}", e);
-                break;
-            }
-            Err(_) => {
-                // Timeout is okay for some applications
-            }
-        }
-    }
-
-    conn.close().await?;
     Ok(())
 }
 

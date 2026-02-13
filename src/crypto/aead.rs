@@ -18,7 +18,7 @@ use crate::error::{Error, Result};
 /// A symmetric key for AEAD operations.
 ///
 /// Automatically zeroized when dropped.
-#[derive(Clone, Zeroize, ZeroizeOnDrop)]
+#[derive(Clone, Debug, PartialEq, Eq, Zeroize, ZeroizeOnDrop)]
 pub struct AeadKey([u8; KEY_SIZE]);
 
 impl AeadKey {

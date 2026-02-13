@@ -37,6 +37,7 @@ pub mod crypto;
 pub mod error;
 pub mod obfuscation;
 pub mod reality;
+pub mod proxy;
 pub mod transport;
 
 #[cfg(feature = "server")]

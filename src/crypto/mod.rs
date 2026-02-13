@@ -67,10 +67,10 @@ mod tests {
         let aad = b"additional authenticated data";
         let nonce = Nonce::new(1);
 
-        let client_aead = Aead::new(client_keys.client_key());
+        let client_aead = Aead::new(&client_keys.client_key());
         let ciphertext = client_aead.encrypt(&nonce, plaintext, aad).unwrap();
 
-        let server_aead = Aead::new(server_keys.client_key());
+        let server_aead = Aead::new(&server_keys.client_key());
         let decrypted = server_aead.decrypt(&nonce, &ciphertext, aad).unwrap();
 
         assert_eq!(plaintext.as_slice(), decrypted.as_slice());

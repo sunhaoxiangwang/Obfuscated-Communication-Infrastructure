@@ -34,12 +34,12 @@
 //!   |========= Encrypted Application Data ========================|
 //! ```
 
-mod client;
+pub mod client;
 mod config;
 mod handshake;
 mod server;
 
-pub use client::RealityClient;
+pub use client::{RealityClient, RealityReader, RealityWriter};
 pub use config::RealityConfig;
 pub use handshake::{ClientHelloBuilder, ServerHelloParser};
 pub use server::RealityServer;
