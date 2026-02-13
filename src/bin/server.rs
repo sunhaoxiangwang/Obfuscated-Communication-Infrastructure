@@ -8,7 +8,6 @@
 //!   -h, --help           Print help information
 
 use std::env;
-use std::path::PathBuf;
 
 use scf::server::{Server, ServerConfig};
 
@@ -41,6 +40,20 @@ async fn main() -> anyhow::Result<()> {
             }
             run_server(&args[2]).await?;
         }
+        "--show-pubkey" => {
+            if args.len() < 3 {
+                eprintln!("Error: --show-pubkey requires a config file path");
+                return Ok(());
+            }
+            show_pubkey(&args[2])?;
+        }
+        "--add-client" => {
+            if args.len() < 3 {
+                eprintln!("Error: --add-client requires a config file path");
+                return Ok(());
+            }
+            add_client(&args[2])?;
+        }
         _ => {
             eprintln!("Unknown option: {}", args[1]);
             print_usage();
@@ -58,9 +71,11 @@ USAGE:
     scf-server [OPTIONS]
 
 OPTIONS:
-    -c, --config <FILE>  Path to configuration file
-    -g, --generate       Generate new server configuration
-    -h, --help           Print help information
+    -c, --config <FILE>     Path to configuration file
+    -g, --generate          Generate new server configuration
+    --show-pubkey <FILE>    Show server public key from existing config
+    --add-client <FILE>     Generate a new client short ID and update config
+    -h, --help              Print help information
 
 EXAMPLES:
     Generate a new configuration:
@@ -68,15 +83,23 @@ EXAMPLES:
 
     Run the server:
         scf-server --config server.toml
+
+    Show public key for clients:
+        scf-server --show-pubkey server.toml
+
+    Add a new client:
+        scf-server --add-client server.toml
 "#
     );
 }
 
 fn generate_config() -> anyhow::Result<()> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
     use scf::server::config::ServerConfigFile;
 
     let mut config = ServerConfig::new_random("0.0.0.0", 443, "www.microsoft.com");
     let short_id = config.generate_short_id();
+    let public_key = config.public_key();
 
     let config_file = ServerConfigFile::from_config(&config);
 
@@ -85,9 +108,65 @@ fn generate_config() -> anyhow::Result<()> {
     println!();
     println!("{}", toml::to_string_pretty(&config_file)?);
     println!();
-    println!("# Client connection info:");
-    println!("# Server Public Key (base64): {}", config_file.static_secret_b64);
+    println!("# Client connection info (put these in client.json):");
+    println!("# Server Public Key (base64): {}", STANDARD.encode(public_key.as_bytes()));
     println!("# Short ID (hex): {}", hex::encode(short_id));
+
+    Ok(())
+}
+
+fn show_pubkey(config_path: &str) -> anyhow::Result<()> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use scf::server::config::ServerConfigFile;
+
+    let content = std::fs::read_to_string(config_path)?;
+    let config_file: ServerConfigFile = toml::from_str(&content)?;
+    let config = config_file.to_config().map_err(|e: String| anyhow::anyhow!(e))?;
+    let public_key = config.public_key();
+
+    println!("Server Public Key (base64): {}", STANDARD.encode(public_key.as_bytes()));
+    println!();
+    println!("Allowed Short IDs (hex):");
+    for (i, id) in config.allowed_short_ids.iter().enumerate() {
+        println!("  [{}] {}", i + 1, hex::encode(id));
+    }
+
+    Ok(())
+}
+
+fn add_client(config_path: &str) -> anyhow::Result<()> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use scf::server::config::ServerConfigFile;
+
+    let content = std::fs::read_to_string(config_path)?;
+    let mut config_file: ServerConfigFile = toml::from_str(&content)?;
+
+    // Generate new short ID
+    let short_id: [u8; 8] = scf::crypto::SecureRandom::bytes();
+    let short_id_hex = hex::encode(short_id);
+    config_file.allowed_short_ids.push(short_id_hex.clone());
+
+    // Write updated config back
+    let mut output = String::new();
+    output.push_str("# SCF Server Configuration\n\n");
+    output.push_str(&toml::to_string_pretty(&config_file)?);
+    std::fs::write(config_path, &output)?;
+
+    // Derive public key for the client config
+    let config = config_file.to_config().map_err(|e: String| anyhow::anyhow!(e))?;
+    let public_key = config.public_key();
+
+    println!("New client added successfully!");
+    println!();
+    println!("Give your friend this client.json:");
+    println!();
+    println!("{{");
+    println!("    \"server_public_key\": \"{}\",", STANDARD.encode(public_key.as_bytes()));
+    println!("    \"short_id\": \"{}\",", short_id_hex);
+    println!("    \"cover_sni\": \"{}\",", config.cover_server);
+    println!("    \"server_addr\": \"YOUR_SERVER_IP\",");
+    println!("    \"server_port\": {}", config.listen_port);
+    println!("}}");
 
     Ok(())
 }
