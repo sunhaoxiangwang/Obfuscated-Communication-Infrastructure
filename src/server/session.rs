@@ -209,24 +209,27 @@ impl Session {
 
     /// Send encrypted data.
     async fn send_data(&self, stream: &mut TcpStream, data: &[u8]) -> Result<()> {
-        let keys = self.keys.lock();
-        let keys = keys.as_ref().ok_or(Error::SessionExpired)?;
+        let record = {
+            let keys = self.keys.lock();
+            let keys = keys.as_ref().ok_or(Error::SessionExpired)?;
 
-        // Get send nonce
-        let nonce_val = self.send_nonce.fetch_add(1, Ordering::SeqCst);
-        let nonce = Nonce::new(nonce_val);
+            // Get send nonce
+            let nonce_val = self.send_nonce.fetch_add(1, Ordering::SeqCst);
+            let nonce = Nonce::new(nonce_val);
 
-        // Encrypt
-        let ciphertext = keys.server_aead.encrypt(&nonce, data, b"")?;
+            // Encrypt
+            let ciphertext = keys.server_aead.encrypt(&nonce, data, b"")?;
 
-        // Frame as TLS record
-        let mut record = Vec::with_capacity(5 + ciphertext.len());
-        record.push(0x17); // Application data
-        record.push(0x03);
-        record.push(0x03);
-        record.push((ciphertext.len() >> 8) as u8);
-        record.push((ciphertext.len() & 0xff) as u8);
-        record.extend_from_slice(&ciphertext);
+            // Frame as TLS record
+            let mut record = Vec::with_capacity(5 + ciphertext.len());
+            record.push(0x17); // Application data
+            record.push(0x03);
+            record.push(0x03);
+            record.push((ciphertext.len() >> 8) as u8);
+            record.push((ciphertext.len() & 0xff) as u8);
+            record.extend_from_slice(&ciphertext);
+            record
+        }; // MutexGuard dropped here, before the .await
 
         stream.write_all(&record).await?;
 
