@@ -1,0 +1,20 @@
+# /etc/scf/maintenance.conf — sourced by maintenance.sh
+# Copy to /etc/scf/maintenance.conf and adjust.
+
+# ── RAM cache ────────────────────────────────────────────────────
+# Drop page cache every cycle. May cause brief I/O spike.
+# Default OFF. Set "true" only if you observe memory pressure.
+DROP_CACHES="false"
+# 1 = pagecache, 2 = dentries+inodes, 3 = all
+DROP_CACHES_LEVEL="1"
+
+# ── Journal ──────────────────────────────────────────────────────
+JOURNAL_VACUUM_SIZE="100M"
+JOURNAL_VACUUM_TIME="7d"
+
+# ── /tmp ─────────────────────────────────────────────────────────
+CLEAN_TMP="true"
+TMP_MAX_AGE_DAYS="2"
+
+# ── APT cache ────────────────────────────────────────────────────
+CLEAN_APT_CACHE="true"

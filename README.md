@@ -91,6 +91,64 @@ async fn main() -> anyhow::Result<()> {
 }
 ```
 
+## Deployment (VPS)
+
+### Prerequisites
+
+- Ubuntu 22.04 / 24.04
+- Rust toolchain (or pre-built binary copied via `scp`)
+
+### Quick Start
+
+```bash
+# On VPS — clone, build, install
+git clone <repo-url> /opt/scf-src && cd /opt/scf-src
+cargo build --release --features server
+sudo ./scripts/install.sh
+
+# Edit config (contains generated keys)
+sudo nano /etc/scf/server.toml
+
+# Start
+sudo systemctl start scf-server
+sudo systemctl start scf-maintenance.timer
+```
+
+### Service Management
+
+| Action | Command |
+|--------|---------|
+| Start | `sudo systemctl start scf-server` |
+| Stop | `sudo systemctl stop scf-server` |
+| Status | `sudo systemctl status scf-server` |
+| Logs | `journalctl -u scf-server -f` |
+| Restart | `sudo systemctl restart scf-server` |
+| Maintenance logs | `journalctl -u scf-maintenance -e` |
+
+### File Locations
+
+| Path | Purpose |
+|------|---------|
+| `/usr/local/bin/scf-server` | Server binary |
+| `/etc/scf/server.toml` | Server config (secret — not in git) |
+| `/etc/scf/scf.env` | Environment overrides |
+| `/etc/scf/maintenance.conf` | Maintenance tunables |
+| `/opt/scf/scripts/maintenance.sh` | Maintenance script |
+
+### Uninstall
+
+```bash
+sudo systemctl stop scf-server scf-maintenance.timer
+sudo systemctl disable scf-server scf-maintenance.timer
+sudo rm /etc/systemd/system/scf-server.service \
+        /etc/systemd/system/scf-maintenance.service \
+        /etc/systemd/system/scf-maintenance.timer
+sudo systemctl daemon-reload
+sudo rm /usr/local/bin/scf-server
+sudo rm -rf /opt/scf /etc/scf
+sudo userdel scf
+```
+
 ## Security Properties
 
 | Property | Implementation |

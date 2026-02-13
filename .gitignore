@@ -1,0 +1,20 @@
+# Build artifacts
+/target/
+
+# Server config (contains static_secret_b64)
+server.toml
+server*.toml
+
+# Client config (contains credentials)
+client.json
+client*.json
+
+# Key material
+*.key
+*.pem
+
+# Environment / runtime
+*.env
+.env*
+
+.DS_Store

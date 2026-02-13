@@ -1,0 +1,11 @@
+[Unit]
+Description=SCF Periodic Maintenance (journal vacuum, tmp cleanup)
+
+[Service]
+Type=oneshot
+ExecStart=/opt/scf/scripts/maintenance.sh
+# Runs as root (required for drop_caches, journalctl vacuum, apt clean)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=scf-maintenance
+Nice=19
