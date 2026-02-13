@@ -9,9 +9,9 @@
 //! All secret material is zeroized on drop to prevent memory leakage.
 
 mod aead;
-mod kdf;
+pub(crate) mod kdf;
 mod keys;
-mod random;
+pub(crate) mod random;
 
 pub use aead::{Aead, AeadKey, Nonce};
 pub use kdf::{Hkdf, SessionKeys};

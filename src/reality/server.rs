@@ -272,7 +272,7 @@ impl RealityServer {
         session.run().await
     }
 
-    fn build_server_hello(server_public: &PublicKey) -> Vec<u8> {
+    pub(crate) fn build_server_hello(server_public: &PublicKey) -> Vec<u8> {
         use bytes::{BufMut, BytesMut};
 
         let mut buf = BytesMut::with_capacity(128);

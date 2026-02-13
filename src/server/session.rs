@@ -53,7 +53,8 @@ pub struct Session {
     client_public: PublicKey,
     /// Short ID used for authentication
     short_id: [u8; 8],
-    /// Session keys (zeroized on drop)
+    /// Session keys (zeroized via SessionKeysWrapper's own ZeroizeOnDrop)
+    #[zeroize(skip)]
     keys: parking_lot::Mutex<Option<SessionKeysWrapper>>,
     /// Send nonce counter
     #[zeroize(skip)]

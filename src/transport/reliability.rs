@@ -301,7 +301,7 @@ impl ReliabilityLayer {
 
         // Merge overlapping ranges
         self.sack_ranges.sort_by_key(|r| r.start);
-        let mut merged = Vec::new();
+        let mut merged: Vec<SackRange> = Vec::new();
         for range in self.sack_ranges.drain(..) {
             if let Some(last) = merged.last_mut() {
                 if !last.merge(&range) {

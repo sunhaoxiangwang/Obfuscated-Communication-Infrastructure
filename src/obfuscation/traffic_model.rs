@@ -207,7 +207,7 @@ impl TrafficModel {
 
     /// Sample a timing interval from the distribution.
     pub fn sample_timing(&self) -> u64 {
-        self.sample_from_histogram(&self.timing_histogram) as u64
+        self.sample_from_histogram(&self.timing_histogram)
     }
 
     /// Get ordered size buckets for padding decisions.
@@ -248,7 +248,7 @@ impl TrafficModel {
         }
     }
 
-    fn timing_bucket(&self, interval_us: u64) -> usize {
+    fn timing_bucket(&self, interval_us: u64) -> u64 {
         // Bucket into logarithmic intervals
         match interval_us {
             0..=99 => 100,
@@ -262,12 +262,12 @@ impl TrafficModel {
         }
     }
 
-    fn sample_from_histogram<K: Copy + Into<usize>>(&self, histogram: &HashMap<K, u64>) -> usize {
+    fn sample_from_histogram<K: Copy + Default + Eq + std::hash::Hash>(&self, histogram: &HashMap<K, u64>) -> K {
         use rand::Rng;
 
         let total: u64 = histogram.values().sum();
         if total == 0 {
-            return 0;
+            return K::default();
         }
 
         let mut rng = rand::thread_rng();
@@ -277,12 +277,12 @@ impl TrafficModel {
         for (&bucket, &count) in histogram {
             cumulative += count;
             if cumulative > target {
-                return bucket.into();
+                return bucket;
             }
         }
 
         // Fallback to first bucket
-        histogram.keys().next().map(|k| (*k).into()).unwrap_or(0)
+        histogram.keys().next().copied().unwrap_or_default()
     }
 }
 
