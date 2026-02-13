@@ -33,7 +33,7 @@
 //! └─────────────────────────────────────────────────────────────────┘
 //! ```
 
-mod config;
+pub mod config;
 mod metrics;
 mod rate_limit;
 mod session;
