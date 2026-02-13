@@ -97,9 +97,9 @@ async fn run_server(config_path: &str) -> anyhow::Result<()> {
 
     let config_content = std::fs::read_to_string(config_path)?;
     let config_file: ServerConfigFile = toml::from_str(&config_content)?;
-    let config = config_file.to_config()?;
+    let config = config_file.to_config().map_err(|e| anyhow::anyhow!(e))?;
 
-    config.validate()?;
+    config.validate().map_err(|e| anyhow::anyhow!(e))?;
 
     tracing::info!("Starting SCF server on {}:{}", config.listen_addr, config.listen_port);
     tracing::info!("Cover server: {}:{}", config.cover_server, config.cover_port);
