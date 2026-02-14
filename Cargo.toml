@@ -5,7 +5,7 @@ edition = "2021"
 authors = ["SCF Research Team"]
 description = "Steganographic Communication Framework - Privacy-preserving transport layer"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/scf-research/scf"
+repository = "https://github.com/sunhaoxiangwang/Obfuscated-Communication-Infrastructure"
 keywords = ["privacy", "cryptography", "networking", "tls", "obfuscation"]
 categories = ["cryptography", "network-programming"]
 

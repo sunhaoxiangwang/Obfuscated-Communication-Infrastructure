@@ -1,40 +1,76 @@
 # Steganographic Communication Framework (SCF)
 
-A privacy-preserving transport layer achieving statistical unobservability through TLS 1.3 traffic mimicry.
+A privacy-preserving transport layer that makes your traffic look like normal HTTPS. Route all your internet traffic through a VPS so it appears to originate from there.
 
-## Overview
-
-SCF is a Rust implementation of an obfuscated communication protocol designed for academic research in network privacy. It provides:
-
-- **REALITY Protocol**: Perfect TLS 1.3 mimicry using real certificates from cover servers
-- **Traffic Obfuscation**: Padding and timing countermeasures for traffic analysis resistance
-- **Resilient Transport**: Custom congestion control and FEC for high-loss environments
-- **Zero-Log Architecture**: RAM-only session storage with forward secrecy
-
-## Architecture
+## How It Works
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    Application Layer                     │
-├─────────────────────────────────────────────────────────┤
-│  Obfuscation Engine (padding, timing, traffic shaping)  │
-├─────────────────────────────────────────────────────────┤
-│  REALITY Protocol (TLS 1.3 mimicry + authentication)    │
-├─────────────────────────────────────────────────────────┤
-│  Transport Stack (QUIC-like, custom congestion control) │
-├─────────────────────────────────────────────────────────┤
-│  Crypto Layer (X25519, ChaCha20-Poly1305, HKDF)        │
-└─────────────────────────────────────────────────────────┘
+You (macOS/iOS)                         Your VPS                    Internet
+┌──────────────┐    Encrypted Tunnel    ┌──────────┐               ┌────────┐
+│ SOCKS5 Proxy ├───────────────────────►│ SCF      ├──────────────►│ Target │
+│ 127.0.0.1    │   Looks like normal    │ Server   │  Connects on  │ Site   │
+│              │◄───────────────────────┤          │◄──────────────┤        │
+└──────────────┘   TLS 1.3 traffic      └──────────┘  your behalf  └────────┘
 ```
 
-## Building
+Your traffic is indistinguishable from normal TLS 1.3 HTTPS — it uses real certificates from a cover server (e.g. `www.microsoft.com`). Multiple TCP connections are multiplexed over a single encrypted tunnel.
+
+## Quick Install (VPS)
+
+One command to deploy on Ubuntu 22.04/24.04:
 
 ```bash
-# Build library
-cargo build --release
+curl -sSf https://raw.githubusercontent.com/sunhaoxiangwang/Obfuscated-Communication-Infrastructure/main/scripts/remote-install.sh | sudo bash
+```
 
-# Build with all features
-cargo build --release --all-features
+This downloads the latest release binary, sets up systemd, generates keys, and starts the server.
+
+After install, add a client:
+
+```bash
+sudo scf-server --add-client /etc/scf/server.toml
+# Outputs a client.json — give this to whoever needs access
+sudo systemctl restart scf-server
+```
+
+## Client Setup
+
+### macOS (Desktop)
+
+1. Download the latest release (or build from source)
+2. Save your `client.json` in the same directory
+3. Double-click `start-proxy.command` — it enables the system SOCKS5 proxy and routes all traffic through the VPS
+4. Close the window to stop
+
+Or manually:
+
+```bash
+scf-client --config client.json
+# SOCKS5 proxy starts on 127.0.0.1:1080
+# Set your browser/system SOCKS5 proxy to 127.0.0.1:1080
+```
+
+Verify it works:
+
+```bash
+curl --socks5 127.0.0.1:1080 https://ifconfig.me
+# Should print your VPS IP
+```
+
+### iOS
+
+A native Swift iOS app is available in a separate repo: [virtual-p2p-connection-iOS-app](https://github.com/sunhaoxiangwang/virtual-p2p-connection-iOS-app)
+
+Uses a Network Extension (NEPacketTunnelProvider) with a local SOCKS5 proxy — tap Connect and all HTTP/HTTPS traffic routes through the VPS.
+
+## Building from Source
+
+```bash
+# Server (for VPS deployment)
+cargo build --release --bin scf-server --features server
+
+# Client (for your machine)
+cargo build --release --bin scf-client --features client
 
 # Run tests
 cargo test
@@ -43,78 +79,20 @@ cargo test
 cargo bench
 ```
 
-## Usage
+## Server Management
 
-### Server Setup
-
-```bash
-# Generate configuration
-./target/release/scf-server --generate > server.toml
-
-# Edit server.toml with your settings
-
-# Run server
-./target/release/scf-server --config server.toml
-```
-
-### Client Connection
+### Add/Remove Clients
 
 ```bash
-# Create client.json with connection parameters
-./target/release/scf-client --test client.json
+# Add a new client (generates short_id, outputs client.json)
+sudo scf-server --add-client /etc/scf/server.toml
+sudo systemctl restart scf-server
+
+# Show server public key and all allowed clients
+sudo scf-server --show-pubkey /etc/scf/server.toml
 ```
 
-### Library Usage
-
-```rust
-use scf::reality::{RealityClient, RealityConfig};
-
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
-    let config = RealityConfig {
-        server_public_key: [/* 32 bytes */],
-        short_id: [/* 8 bytes */],
-        cover_sni: "www.example.com".to_string(),
-        server_addr: "your-server.com".to_string(),
-        server_port: 443,
-        ..Default::default()
-    };
-
-    let client = RealityClient::new(config)?;
-    let mut conn = client.connect().await?;
-
-    conn.send(b"Hello, World!").await?;
-    let response = conn.recv().await?;
-
-    conn.close().await?;
-    Ok(())
-}
-```
-
-## Deployment (VPS)
-
-### Prerequisites
-
-- Ubuntu 22.04 / 24.04
-- Rust toolchain (or pre-built binary copied via `scp`)
-
-### Quick Start
-
-```bash
-# On VPS — clone, build, install
-git clone <repo-url> /opt/scf-src && cd /opt/scf-src
-cargo build --release --features server
-sudo ./scripts/install.sh
-
-# Edit config (contains generated keys)
-sudo nano /etc/scf/server.toml
-
-# Start
-sudo systemctl start scf-server
-sudo systemctl start scf-maintenance.timer
-```
-
-### Service Management
+### Service Commands
 
 | Action | Command |
 |--------|---------|
@@ -123,17 +101,14 @@ sudo systemctl start scf-maintenance.timer
 | Status | `sudo systemctl status scf-server` |
 | Logs | `journalctl -u scf-server -f` |
 | Restart | `sudo systemctl restart scf-server` |
-| Maintenance logs | `journalctl -u scf-maintenance -e` |
 
 ### File Locations
 
 | Path | Purpose |
 |------|---------|
 | `/usr/local/bin/scf-server` | Server binary |
-| `/etc/scf/server.toml` | Server config (secret — not in git) |
-| `/etc/scf/scf.env` | Environment overrides |
-| `/etc/scf/maintenance.conf` | Maintenance tunables |
-| `/opt/scf/scripts/maintenance.sh` | Maintenance script |
+| `/etc/scf/server.toml` | Server config (contains keys — not in git) |
+| `/etc/scf/scf.env` | Environment overrides (log level, etc.) |
 
 ### Uninstall
 
@@ -149,70 +124,82 @@ sudo rm -rf /opt/scf /etc/scf
 sudo userdel scf
 ```
 
-## Security Properties
+## Architecture
+
+### Protocol Stack
+
+| Layer | Component | Purpose |
+|-------|-----------|---------|
+| **Proxy** | SOCKS5 + Mux | Local proxy, stream multiplexing over single tunnel |
+| **REALITY** | TLS 1.3 Mimicry | Real cover server certs, HMAC auth in ClientHello |
+| **Crypto** | X25519, ChaCha20-Poly1305, HKDF | Key exchange, encryption, key derivation |
+| **Transport** | TCP + TLS record framing | Reliable delivery with standard record format |
+
+### Multiplexing Protocol
+
+Multiple connections share one encrypted tunnel via a lightweight frame header:
+
+| Field | Size | Description |
+|-------|------|-------------|
+| Type | 1 byte | StreamOpen / OpenAck / Data / Close / Reset |
+| StreamID | 4 bytes | Client-allocated stream identifier |
+| DataLen | 2 bytes | Payload length (max 15,000 bytes) |
+
+### Security Properties
 
 | Property | Implementation |
 |----------|----------------|
-| **Unobservability** | Traffic indistinguishable from Nginx TLS patterns |
+| **Unobservability** | Traffic indistinguishable from Nginx TLS 1.3 patterns |
 | **Forward Secrecy** | Per-session X25519 ephemeral keys |
-| **Authentication** | HMAC-based auth tag embedded in ClientHello |
-| **Confidentiality** | ChaCha20-Poly1305 AEAD encryption |
-| **Integrity** | Poly1305 authentication tags |
-
-## Evaluation
-
-See [docs/EVALUATION.md](docs/EVALUATION.md) for detailed testing methodology including:
-
-- KL divergence analysis for traffic distribution matching
-- ML classifier resistance testing
-- Packet loss resilience benchmarks
-- Latency overhead measurements
+| **Authentication** | HMAC-based auth tag embedded in ClientHello `client_random` |
+| **Confidentiality** | ChaCha20-Poly1305 AEAD with independent send/recv keys |
+| **Zero-Log** | RAM-only sessions, zeroized on drop |
 
 ## Project Structure
 
 ```
 src/
-├── lib.rs              # Library entry point
-├── error.rs            # Error types
-├── crypto/             # Cryptographic primitives
-│   ├── keys.rs         # X25519 key types
-│   ├── aead.rs         # ChaCha20-Poly1305
-│   ├── kdf.rs          # HKDF key derivation
-│   └── random.rs       # Secure RNG
-├── reality/            # REALITY protocol
-│   ├── config.rs       # Configuration
-│   ├── handshake.rs    # TLS message building
-│   ├── client.rs       # Client implementation
-│   └── server.rs       # Server implementation
-├── obfuscation/        # Traffic obfuscation
-│   ├── padding.rs      # Packet padding
-│   ├── timing.rs       # Timing obfuscation
-│   └── traffic_model.rs # Traffic patterns
-├── transport/          # Transport layer
-│   ├── packet.rs       # Packet framing
-│   ├── congestion.rs   # BBR-like CC
-│   ├── fec.rs          # Forward error correction
-│   ├── reliability.rs  # SACK retransmission
-│   └── stream.rs       # Stream multiplexing
-├── server/             # Server infrastructure
-│   ├── config.rs       # Server config
-│   ├── session.rs      # RAM-only sessions
-│   ├── rate_limit.rs   # Rate limiting
-│   └── metrics.rs      # Metrics collection
-├── ffi/                # C FFI bindings
-└── bin/                # CLI binaries
-    ├── server.rs
-    └── client.rs
+├── lib.rs                # Library entry point
+├── error.rs              # Error types
+├── crypto/               # Cryptographic primitives
+│   ├── keys.rs           # X25519 key types
+│   ├── aead.rs           # ChaCha20-Poly1305
+│   ├── kdf.rs            # HKDF key derivation
+│   └── random.rs         # Secure RNG
+├── reality/              # REALITY protocol
+│   ├── config.rs         # Configuration
+│   ├── handshake.rs      # TLS 1.3 ClientHello/ServerHello
+│   ├── client.rs         # Client (connect + split)
+│   └── server.rs         # Server (accept + verify)
+├── proxy/                # Proxy layer
+│   ├── mux.rs            # Stream multiplexing frames
+│   ├── socks5.rs         # Client-side SOCKS5 proxy
+│   └── relay.rs          # Server-side TCP relay
+├── server/               # Server infrastructure
+│   ├── config.rs         # Server config + client management
+│   ├── session.rs        # RAM-only sessions
+│   ├── rate_limit.rs     # Rate limiting
+│   └── metrics.rs        # Metrics collection
+├── obfuscation/          # Traffic obfuscation
+│   ├── padding.rs        # Packet padding
+│   ├── timing.rs         # Timing obfuscation
+│   └── traffic_model.rs  # Traffic pattern matching
+├── transport/            # Transport layer
+│   ├── congestion.rs     # BBR-like congestion control
+│   ├── fec.rs            # Forward error correction
+│   └── reliability.rs    # SACK retransmission
+└── bin/                  # CLI binaries
+    ├── server.rs         # scf-server
+    └── client.rs         # scf-client
 ```
 
-## Cross-Platform Support
+## Cross-Platform
 
-The core library supports:
-- Linux (x86_64, ARM64)
-- macOS (x86_64, ARM64)
-- Windows (x86_64)
-- Android (via JNI)
-- iOS (via C FFI)
+| Platform | Method |
+|----------|--------|
+| Linux x86_64 | Pre-built release binary or `cargo build` |
+| macOS (Intel/Apple Silicon) | `cargo build` + `start-proxy.command` |
+| iOS | Native Swift app ([separate repo](https://github.com/sunhaoxiangwang/virtual-p2p-connection-iOS-app)) |
 
 ## License
 
