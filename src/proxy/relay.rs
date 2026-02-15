@@ -48,11 +48,14 @@ async fn relay_writer(
     mut rx: mpsc::Receiver<Frame>,
 ) -> Result<()> {
     let mut send_nonce = Nonce::new(0);
+    let mut frame_count: u64 = 0;
 
     while let Some(frame) = rx.recv().await {
         let data = frame.encode();
+        let nonce_val = send_nonce.counter();
         let ciphertext = server_aead.encrypt(&send_nonce, &data, b"")?;
         send_nonce.increment();
+        frame_count += 1;
 
         let mut record = Vec::with_capacity(5 + ciphertext.len());
         record.push(0x17); // Application data
@@ -62,9 +65,16 @@ async fn relay_writer(
         record.push((ciphertext.len() & 0xff) as u8);
         record.extend_from_slice(&ciphertext);
 
+        tracing::info!(
+            "Writer frame #{}: type={:?} stream={} payload={}b nonce={} record={}b",
+            frame_count, frame.frame_type, frame.stream_id,
+            frame.payload.len(), nonce_val, record.len()
+        );
+
         writer.write_all(&record).await.map_err(Error::Network)?;
     }
 
+    tracing::info!("Writer exiting after {} frames", frame_count);
     Ok(())
 }
 

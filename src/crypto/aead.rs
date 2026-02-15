@@ -71,6 +71,11 @@ impl Nonce {
         &self.0
     }
 
+    /// Get the current counter value (for diagnostics).
+    pub fn counter(&self) -> u64 {
+        u64::from_le_bytes(self.0[4..12].try_into().unwrap())
+    }
+
     /// Increment the counter portion of the nonce.
     pub fn increment(&mut self) {
         let counter = u64::from_le_bytes(self.0[4..12].try_into().unwrap());
