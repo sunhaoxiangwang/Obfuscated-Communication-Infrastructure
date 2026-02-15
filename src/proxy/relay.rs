@@ -4,6 +4,7 @@
 //! target hosts, and relays data bidirectionally.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -12,6 +13,9 @@ use tokio::sync::mpsc;
 use crate::crypto::{Aead, Nonce};
 use crate::error::{Error, Result};
 use crate::proxy::mux::{parse_target_addr, Frame, FrameType, StreamId, MAX_FRAME_PAYLOAD};
+
+/// Timeout for connecting to target hosts.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Run the server-side relay loop.
 ///
@@ -69,7 +73,15 @@ async fn relay_reader(
     let mut recv_nonce = Nonce::new(0);
     let mut streams: HashMap<StreamId, mpsc::Sender<Vec<u8>>> = HashMap::new();
 
+    // Spawned relay tasks send back stream IDs that need cleanup
+    let (cleanup_tx, mut cleanup_rx) = mpsc::channel::<StreamId>(64);
+
     loop {
+        // Drain any pending cleanup notifications before reading
+        while let Ok(stream_id) = cleanup_rx.try_recv() {
+            streams.remove(&stream_id);
+        }
+
         // Read TLS record header
         let mut header = [0u8; 5];
         match reader.read_exact(&mut header).await {
@@ -122,19 +134,30 @@ async fn relay_reader(
                 streams.insert(stream_id, data_tx);
 
                 let reply_tx = reply_tx.clone();
+                let cleanup_tx = cleanup_tx.clone();
                 tokio::spawn(async move {
-                    match TcpStream::connect(format!("{}:{}", host, port)).await {
-                        Ok(target_stream) => {
+                    // Timeout prevents hanging on unresponsive targets / slow DNS
+                    let connect_result = tokio::time::timeout(
+                        CONNECT_TIMEOUT,
+                        TcpStream::connect(format!("{}:{}", host, port)),
+                    )
+                    .await;
+
+                    match connect_result {
+                        Ok(Ok(target_stream)) => {
                             let _ = reply_tx
                                 .send(Frame::stream_open_ack(stream_id, 0x00))
                                 .await;
-                            let _ =
-                                relay_target(stream_id, target_stream, data_rx, reply_tx).await;
+                            relay_target(stream_id, target_stream, data_rx, reply_tx, cleanup_tx)
+                                .await;
                         }
-                        Err(_) => {
+                        _ => {
+                            // Connect failed or timed out
                             let _ = reply_tx
                                 .send(Frame::stream_open_ack(stream_id, 0x01))
                                 .await;
+                            // Notify reader to remove HashMap entry
+                            let _ = cleanup_tx.send(stream_id).await;
                         }
                     }
                 });
@@ -155,17 +178,22 @@ async fn relay_reader(
 }
 
 /// Relay data between a mux stream and a target TCP connection.
+///
+/// Uses `tokio::select!` so that when either direction finishes or errors,
+/// the other is cancelled immediately — no orphaned tasks or hanging connections.
 async fn relay_target(
     stream_id: StreamId,
     target: TcpStream,
     mut data_rx: mpsc::Receiver<Vec<u8>>,
     reply_tx: mpsc::Sender<Frame>,
-) -> Result<()> {
+    cleanup_tx: mpsc::Sender<StreamId>,
+) {
     let (mut target_reader, mut target_writer) = tokio::io::split(target);
 
-    // Target → client
     let reply_tx2 = reply_tx.clone();
-    let read_task = tokio::spawn(async move {
+
+    // Target → client
+    let read_half = async {
         let mut buf = vec![0u8; MAX_FRAME_PAYLOAD];
         loop {
             match target_reader.read(&mut buf).await {
@@ -182,18 +210,24 @@ async fn relay_target(
                 Err(_) => break,
             }
         }
-        let _ = reply_tx2.send(Frame::stream_close(stream_id)).await;
-    });
+    };
 
     // Client → target
-    let write_task = tokio::spawn(async move {
+    let write_half = async {
         while let Some(data) = data_rx.recv().await {
             if target_writer.write_all(&data).await.is_err() {
                 break;
             }
         }
-    });
+    };
 
-    let _ = tokio::join!(read_task, write_task);
-    Ok(())
+    // When either direction finishes, cancel the other immediately
+    tokio::select! {
+        _ = read_half => {}
+        _ = write_half => {}
+    }
+
+    // Notify client and reader of stream termination
+    let _ = reply_tx.send(Frame::stream_close(stream_id)).await;
+    let _ = cleanup_tx.send(stream_id).await;
 }
