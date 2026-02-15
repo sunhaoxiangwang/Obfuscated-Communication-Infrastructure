@@ -92,12 +92,12 @@ impl Server {
         loop {
             match listener.accept().await {
                 Ok((stream, peer_addr)) => {
-                    tracing::debug!("New connection from {}", peer_addr);
+                    tracing::info!("New connection from {}", peer_addr);
 
                     // Check rate limit
                     if !self.rate_limiter.check(&peer_addr.ip()) {
                         self.metrics.increment_rate_limited();
-                        tracing::debug!("Rate limited connection from {}", peer_addr);
+                        tracing::info!("Rate limited connection from {}", peer_addr);
                         continue;
                     }
 
@@ -117,7 +117,7 @@ impl Server {
                         )
                         .await
                         {
-                            tracing::debug!("Connection error from {}: {}", peer_addr, e);
+                            tracing::info!("Connection error from {}: {}", peer_addr, e);
                         }
 
                         metrics.decrement_connections();
@@ -148,10 +148,10 @@ impl Server {
 
         // Check if TLS handshake
         if buf[0] == 0x16 && buf[1] == 0x03 {
-            tracing::debug!("TLS ClientHello from {}", peer_addr);
+            tracing::info!("TLS ClientHello from {}", peer_addr);
             Self::handle_tls_connection(config, session_manager, metrics, stream, peer_addr).await
         } else {
-            tracing::debug!("Non-TLS connection from {} (first byte: 0x{:02x}), dropping", peer_addr, buf[0]);
+            tracing::info!("Non-TLS connection from {} (first byte: 0x{:02x}), dropping", peer_addr, buf[0]);
             Ok(())
         }
     }
@@ -183,7 +183,7 @@ impl Server {
                 Self::handle_reality_session(config, session, stream, &buf).await
             }
             Err(e) => {
-                tracing::debug!("REALITY auth failed from {} (proxying to cover): {}", peer_addr, e);
+                tracing::info!("REALITY auth failed from {} (proxying to cover): {}", peer_addr, e);
                 // Proxy to cover server
                 metrics.increment_proxied();
                 Self::proxy_to_cover(&config, stream, buf).await
@@ -211,7 +211,7 @@ impl Server {
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
-        tracing::debug!("Building ServerHello for session");
+        tracing::info!("Building ServerHello for session");
 
         // Generate server ephemeral
         let server_ephemeral = crate::crypto::EphemeralSecret::random();
@@ -220,7 +220,7 @@ impl Server {
         // Build and send ServerHello
         let server_hello = crate::reality::RealityServer::build_server_hello(&server_public);
         stream.write_all(&server_hello).await?;
-        tracing::debug!("ServerHello sent, deriving session keys");
+        tracing::info!("ServerHello sent, deriving session keys");
 
         // Derive session keys (label must match client's "reality_handshake")
         let shared = server_ephemeral.diffie_hellman(session.client_public());
@@ -246,7 +246,7 @@ impl Server {
 
         // Connect to cover server
         let cover_addr = format!("{}:{}", config.cover_server, config.cover_port);
-        tracing::debug!("Proxying to cover server {}", cover_addr);
+        tracing::info!("Proxying to cover server {}", cover_addr);
         let mut cover = TcpStream::connect(&cover_addr).await?;
 
         // Forward initial data

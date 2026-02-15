@@ -22,7 +22,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 /// Reads encrypted mux frames from the client, dispatches StreamOpen to target
 /// connections, and relays data bidirectionally.
 pub async fn run_relay(stream: TcpStream, client_aead: Aead, server_aead: Aead) -> Result<()> {
-    tracing::debug!("Relay started");
+    tracing::info!("Relay started");
     let (read_half, write_half) = tokio::io::split(stream);
 
     // Channel for frames going back to the client
@@ -33,12 +33,12 @@ pub async fn run_relay(stream: TcpStream, client_aead: Aead, server_aead: Aead) 
 
     // Reader loop: reads TLS records, decrypts, dispatches mux frames
     let reader_result = relay_reader(read_half, client_aead, tx).await;
-    tracing::debug!("Relay reader ended: {:?}", reader_result.as_ref().err());
+    tracing::info!("Relay reader ended: {:?}", reader_result.as_ref().err());
 
     // Writer exits when all tx senders are dropped
     let _ = writer_handle.await;
 
-    tracing::debug!("Relay fully stopped");
+    tracing::info!("Relay fully stopped");
     reader_result
 }
 
@@ -126,14 +126,14 @@ async fn relay_reader(
                 let (host, port) = match parse_target_addr(&frame.payload) {
                     Ok(v) => v,
                     Err(e) => {
-                        tracing::debug!("Stream {} bad address: {}", stream_id, e);
+                        tracing::info!("Stream {} bad address: {}", stream_id, e);
                         let _ = reply_tx
                             .send(Frame::stream_open_ack(stream_id, 0x01))
                             .await;
                         continue;
                     }
                 };
-                tracing::debug!("Stream {} opening → {}:{}", stream_id, host, port);
+                tracing::info!("Stream {} opening → {}:{}", stream_id, host, port);
 
                 let (data_tx, data_rx) = mpsc::channel::<Vec<u8>>(64);
                 streams.insert(stream_id, data_tx);
@@ -150,23 +150,23 @@ async fn relay_reader(
 
                     match connect_result {
                         Ok(Ok(target_stream)) => {
-                            tracing::debug!("Stream {} connected to target", stream_id);
+                            tracing::info!("Stream {} connected to target", stream_id);
                             let _ = reply_tx
                                 .send(Frame::stream_open_ack(stream_id, 0x00))
                                 .await;
                             relay_target(stream_id, target_stream, data_rx, reply_tx, cleanup_tx)
                                 .await;
-                            tracing::debug!("Stream {} relay finished", stream_id);
+                            tracing::info!("Stream {} relay finished", stream_id);
                         }
                         Ok(Err(e)) => {
-                            tracing::debug!("Stream {} connect failed: {}", stream_id, e);
+                            tracing::info!("Stream {} connect failed: {}", stream_id, e);
                             let _ = reply_tx
                                 .send(Frame::stream_open_ack(stream_id, 0x01))
                                 .await;
                             let _ = cleanup_tx.send(stream_id).await;
                         }
                         Err(_) => {
-                            tracing::debug!("Stream {} connect timed out", stream_id);
+                            tracing::info!("Stream {} connect timed out", stream_id);
                             let _ = reply_tx
                                 .send(Frame::stream_open_ack(stream_id, 0x01))
                                 .await;
@@ -183,7 +183,7 @@ async fn relay_reader(
                 }
             }
             FrameType::StreamClose | FrameType::StreamReset => {
-                tracing::debug!("Stream {} {:?} from client", frame.stream_id, frame.frame_type);
+                tracing::info!("Stream {} {:?} from client", frame.stream_id, frame.frame_type);
                 streams.remove(&frame.stream_id);
             }
             _ => {}
