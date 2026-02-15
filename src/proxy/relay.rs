@@ -186,6 +186,9 @@ async fn relay_reader(
                 tracing::info!("Stream {} {:?} from client", frame.stream_id, frame.frame_type);
                 streams.remove(&frame.stream_id);
             }
+            FrameType::Ping => {
+                let _ = reply_tx.send(Frame::pong()).await;
+            }
             _ => {}
         }
     }

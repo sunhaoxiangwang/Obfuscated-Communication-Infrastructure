@@ -29,6 +29,10 @@ pub enum FrameType {
     StreamClose = 0x04,
     /// Abrupt reset of a stream.
     StreamReset = 0x05,
+    /// Keepalive ping (client → server).
+    Ping = 0x06,
+    /// Keepalive pong (server → client).
+    Pong = 0x07,
 }
 
 impl FrameType {
@@ -39,6 +43,8 @@ impl FrameType {
             0x03 => Ok(Self::StreamData),
             0x04 => Ok(Self::StreamClose),
             0x05 => Ok(Self::StreamReset),
+            0x06 => Ok(Self::Ping),
+            0x07 => Ok(Self::Pong),
             _ => Err(Error::InvalidMessage(format!("unknown frame type: 0x{:02x}", v))),
         }
     }
@@ -134,6 +140,24 @@ impl Frame {
         Self {
             frame_type: FrameType::StreamReset,
             stream_id,
+            payload: Vec::new(),
+        }
+    }
+
+    /// Create a Ping frame.
+    pub fn ping() -> Self {
+        Self {
+            frame_type: FrameType::Ping,
+            stream_id: 0,
+            payload: Vec::new(),
+        }
+    }
+
+    /// Create a Pong frame.
+    pub fn pong() -> Self {
+        Self {
+            frame_type: FrameType::Pong,
+            stream_id: 0,
             payload: Vec::new(),
         }
     }
