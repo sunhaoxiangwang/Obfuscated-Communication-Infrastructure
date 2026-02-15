@@ -187,6 +187,7 @@ async fn relay_reader(
                 streams.remove(&frame.stream_id);
             }
             FrameType::Ping => {
+                tracing::info!("Keepalive ping received, sending pong");
                 let _ = reply_tx.send(Frame::pong()).await;
             }
             _ => {}
