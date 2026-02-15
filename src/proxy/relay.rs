@@ -176,10 +176,17 @@ async fn relay_reader(
                 });
             }
             FrameType::StreamData => {
-                if let Some(tx) = streams.get(&frame.stream_id) {
+                let sid = frame.stream_id;
+                let len = frame.payload.len();
+                if let Some(tx) = streams.get(&sid) {
                     if tx.send(frame.payload).await.is_err() {
-                        streams.remove(&frame.stream_id);
+                        tracing::info!("Stream {} data send failed (target gone), {} bytes dropped", sid, len);
+                        streams.remove(&sid);
+                    } else {
+                        tracing::info!("Stream {} → target: {} bytes", sid, len);
                     }
+                } else {
+                    tracing::info!("Stream {} data for unknown stream, {} bytes dropped", sid, len);
                 }
             }
             FrameType::StreamClose | FrameType::StreamReset => {
@@ -217,6 +224,7 @@ async fn relay_target(
             match target_reader.read(&mut buf).await {
                 Ok(0) => break,
                 Ok(n) => {
+                    tracing::info!("Stream {} ← target: {} bytes", stream_id, n);
                     if reply_tx2
                         .send(Frame::stream_data(stream_id, &buf[..n]))
                         .await
