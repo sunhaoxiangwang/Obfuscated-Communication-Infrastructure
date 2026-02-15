@@ -92,6 +92,8 @@ impl Server {
         loop {
             match listener.accept().await {
                 Ok((stream, peer_addr)) => {
+                    tracing::debug!("New connection from {}", peer_addr);
+
                     // Check rate limit
                     if !self.rate_limiter.check(&peer_addr.ip()) {
                         self.metrics.increment_rate_limited();
@@ -146,10 +148,10 @@ impl Server {
 
         // Check if TLS handshake
         if buf[0] == 0x16 && buf[1] == 0x03 {
-            // This is a TLS ClientHello
+            tracing::debug!("TLS ClientHello from {}", peer_addr);
             Self::handle_tls_connection(config, session_manager, metrics, stream, peer_addr).await
         } else {
-            // Not TLS - close connection
+            tracing::debug!("Non-TLS connection from {} (first byte: 0x{:02x}), dropping", peer_addr, buf[0]);
             Ok(())
         }
     }
@@ -171,6 +173,7 @@ impl Server {
         // Try REALITY authentication
         match Self::authenticate_reality(&config, &buf) {
             Ok((client_public, short_id)) => {
+                tracing::info!("REALITY auth SUCCESS from {} (short_id: {})", peer_addr, hex::encode(short_id));
                 metrics.increment_authenticated();
 
                 // Create session
@@ -179,7 +182,8 @@ impl Server {
                 // Handle authenticated session
                 Self::handle_reality_session(config, session, stream, &buf).await
             }
-            Err(_) => {
+            Err(e) => {
+                tracing::debug!("REALITY auth failed from {} (proxying to cover): {}", peer_addr, e);
                 // Proxy to cover server
                 metrics.increment_proxied();
                 Self::proxy_to_cover(&config, stream, buf).await
@@ -207,6 +211,8 @@ impl Server {
     ) -> Result<()> {
         use tokio::io::AsyncWriteExt;
 
+        tracing::debug!("Building ServerHello for session");
+
         // Generate server ephemeral
         let server_ephemeral = crate::crypto::EphemeralSecret::random();
         let server_public = crate::crypto::PublicKey::from(&server_ephemeral);
@@ -214,6 +220,7 @@ impl Server {
         // Build and send ServerHello
         let server_hello = crate::reality::RealityServer::build_server_hello(&server_public);
         stream.write_all(&server_hello).await?;
+        tracing::debug!("ServerHello sent, deriving session keys");
 
         // Derive session keys (label must match client's "reality_handshake")
         let shared = server_ephemeral.diffie_hellman(session.client_public());
@@ -223,7 +230,10 @@ impl Server {
         let client_aead = crate::crypto::Aead::new(&keys.client_key());
         let server_aead = crate::crypto::Aead::new(&keys.server_key());
 
-        crate::proxy::relay::run_relay(stream, client_aead, server_aead).await
+        tracing::info!("Starting relay for authenticated session");
+        let result = crate::proxy::relay::run_relay(stream, client_aead, server_aead).await;
+        tracing::info!("Relay ended: {:?}", result.as_ref().err());
+        result
     }
 
     async fn proxy_to_cover(
@@ -236,6 +246,7 @@ impl Server {
 
         // Connect to cover server
         let cover_addr = format!("{}:{}", config.cover_server, config.cover_port);
+        tracing::debug!("Proxying to cover server {}", cover_addr);
         let mut cover = TcpStream::connect(&cover_addr).await?;
 
         // Forward initial data
