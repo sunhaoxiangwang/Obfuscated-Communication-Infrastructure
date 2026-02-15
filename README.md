@@ -59,7 +59,7 @@ curl --socks5 127.0.0.1:1080 https://ifconfig.me
 
 ### iOS
 
-A native Swift iOS app is available in a separate repo: [virtual-p2p-connection-iOS-app](https://github.com/sunhaoxiangwang/virtual-p2p-connection-iOS-app)
+A native Swift iOS app is available in a separate repo: [SCF-iOS-app](https://github.com/sunhaoxiangwang/SCF-iOS-app)
 
 Uses a Network Extension (NEPacketTunnelProvider) with a local SOCKS5 proxy — tap Connect and all HTTP/HTTPS traffic routes through the VPS.
 
@@ -202,6 +202,8 @@ src/
 | iOS | Native Swift app ([separate repo](https://github.com/sunhaoxiangwang/virtual-p2p-connection-iOS-app)) |
 
 ## License
+
+Copyright (c) 2025 [SUM INNOVATION INC](https://suminnovation.xyz). All rights reserved.
 
 MIT OR Apache-2.0
 
