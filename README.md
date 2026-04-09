@@ -203,9 +203,9 @@ src/
 
 ## License
 
-Copyright (c) 2025 [SUM INNOVATION INC](https://suminnovation.xyz). All rights reserved.
+Copyright (c) 2026 Leonard Sunhaoxiang Wang
 
-MIT OR Apache-2.0
+MIT
 
 ## Disclaimer
 
